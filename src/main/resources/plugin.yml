@@ -1,0 +1,9 @@
+name: PortableShulkerBox
+
+main: com.github.jikoo.portableshulkerbox.PortableShulkerBox
+version: ${project.version}
+author: Jikoo
+
+permissions:
+ portableshulkerbox.open:
+  default: true
