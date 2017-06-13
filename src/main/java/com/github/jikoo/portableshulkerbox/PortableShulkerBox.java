@@ -139,9 +139,18 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 			return;
 		}
 
-		if (event.getCurrentItem().getType().name().endsWith("_SHULKER_BOX")
-				|| event.getClick() == ClickType.NUMBER_KEY && event.getWhoClicked().getInventory().getItem(event.getHotbarButton()).getType().name().endsWith("_SHULKER_BOX")) {
+		// Disallow movement of shulker boxes in general, not just the open one.
+		if (event.getCurrentItem() != null && event.getCurrentItem().getType().name().endsWith("_SHULKER_BOX")) {
 			event.setCancelled(true);
+			return;
+		}
+
+		if (event.getClick() == ClickType.NUMBER_KEY) {
+			ItemStack hotbar = event.getWhoClicked().getInventory().getItem(event.getHotbarButton());
+			if (hotbar != null && hotbar.getType().name().endsWith("_SHULKER_BOX")) {
+				event.setCancelled(true);
+				return;
+			}
 		}
 
 		if (this.playersOpeningBoxes.containsKey(event.getWhoClicked().getUniqueId())) {
