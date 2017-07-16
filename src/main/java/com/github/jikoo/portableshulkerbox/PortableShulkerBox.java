@@ -96,9 +96,15 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 		}
 
 		Inventory inventory = ((InventoryHolder) blockState).getInventory();
+		String name = itemMeta.getDisplayName();
 
-		// To support translations (and alleviate confusion when the box has not been placed since naming), use item name.
-		Inventory opened = this.getServer().createInventory(player, InventoryType.SHULKER_BOX, itemMeta.getDisplayName());
+		// To alleviate confusion when the box has not been placed since naming, use item name.
+		Inventory opened;
+		if (name != null) {
+			opened = this.getServer().createInventory(player, InventoryType.SHULKER_BOX, itemMeta.getDisplayName());
+		} else {
+			opened = this.getServer().createInventory(player, InventoryType.SHULKER_BOX);
+		}
 
 		opened.setContents(inventory.getContents());
 
@@ -169,16 +175,15 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 	@EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
 	public void preventServerCrash(final InventoryClickEvent event) {
 		/*
-		 * In 1.11, shift clicking caused a nasty NPE or StackOverflowError.
+		 * In 1.11, shift clicking caused a nasty NullPointerException or StackOverflowError.
 		 * In 1.12, shift clicking crashes the server.
 		 *
 		 * All of these things are Bad Things. We do not like Bad Things.
 		 *
-		 * To prevent this, we manually mimic vanilla behavior on priority MONITORso other plugins do not interpret our
+		 * To prevent this, we manually mimic vanilla behavior on priority MONITOR so other plugins do not interpret our
 		 * event cancellation as transfer prevention.
 		 */
-		if (!this.playersOpeningBoxes.containsKey(event.getWhoClicked().getUniqueId())
-				|| event.getSlotType() != InventoryType.SlotType.CONTAINER || !event.isShiftClick()
+		if (!this.playersOpeningBoxes.containsKey(event.getWhoClicked().getUniqueId()) || !event.isShiftClick()
 				|| event.getCurrentItem() == null || event.getCurrentItem().getType() == Material.AIR) {
 			return;
 		}
