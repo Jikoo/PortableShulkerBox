@@ -291,7 +291,7 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 			case PINK_SHULKER_BOX:
 			case PURPLE_SHULKER_BOX:
 			case RED_SHULKER_BOX:
-			case SILVER_SHULKER_BOX:
+			case LIGHT_GRAY_SHULKER_BOX:
 			case WHITE_SHULKER_BOX:
 			case YELLOW_SHULKER_BOX:
 				return true;
