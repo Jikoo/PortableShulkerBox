@@ -100,7 +100,7 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 
 		// To alleviate confusion when the box has not been placed since naming, use item name.
 		Inventory opened;
-		if (name != null) {
+		if (name != null && !name.isEmpty()) {
 			opened = this.getServer().createInventory(player, InventoryType.SHULKER_BOX, itemMeta.getDisplayName());
 		} else {
 			opened = this.getServer().createInventory(player, InventoryType.SHULKER_BOX);
@@ -278,6 +278,7 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 			return false;
 		}
 		switch (itemStack.getType()) {
+			case SHULKER_BOX:
 			case BLACK_SHULKER_BOX:
 			case BLUE_SHULKER_BOX:
 			case BROWN_SHULKER_BOX:
