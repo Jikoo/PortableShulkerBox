@@ -1,14 +1,17 @@
 package com.github.jikoo.portableshulkerbox;
 
-import org.apache.commons.lang3.tuple.ImmutablePair;
-import org.apache.commons.lang3.tuple.Pair;
+import com.github.jikoo.portableshulkerbox.util.Pair;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Supplier;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.block.BlockState;
 import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.inventory.ClickType;
@@ -29,10 +32,7 @@ import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.BlockStateMeta;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
-
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * A simple plugin allowing players to open shulker boxes by right clicking air.
@@ -40,6 +40,25 @@ import java.util.UUID;
  * @author Jikoo
  */
 public class PortableShulkerBox extends JavaPlugin implements Listener {
+
+	private static final EnumSet<Material> SHULKER_BOX_TYPES = EnumSet.of(
+			Material.SHULKER_BOX,
+			Material.BLACK_SHULKER_BOX,
+			Material.BLUE_SHULKER_BOX,
+			Material.BROWN_SHULKER_BOX,
+			Material.CYAN_SHULKER_BOX,
+			Material.GRAY_SHULKER_BOX,
+			Material.GREEN_SHULKER_BOX,
+			Material.LIGHT_BLUE_SHULKER_BOX,
+			Material.LIME_SHULKER_BOX,
+			Material.MAGENTA_SHULKER_BOX,
+			Material.ORANGE_SHULKER_BOX,
+			Material.PINK_SHULKER_BOX,
+			Material.PURPLE_SHULKER_BOX,
+			Material.RED_SHULKER_BOX,
+			Material.LIGHT_GRAY_SHULKER_BOX,
+			Material.WHITE_SHULKER_BOX,
+			Material.YELLOW_SHULKER_BOX);
 
 	private final Map<UUID, Pair<InventoryView, EquipmentSlot>> playersOpeningBoxes = new HashMap<>();
 
@@ -50,7 +69,15 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 
 	@Override
 	public void onDisable() {
-		this.playersOpeningBoxes.forEach((mapping, value) -> Bukkit.getPlayer(mapping).closeInventory());
+		this.playersOpeningBoxes.forEach((mapping, value) -> {
+			Player player = Bukkit.getPlayer(mapping);
+			if (player != null) {
+				player.closeInventory();
+			} else {
+				System.err.println(String.format("Inventory not properly closed for player with UUID %s! Possible dupe bug!",
+						mapping));
+			}
+		});
 		this.playersOpeningBoxes.clear();
 	}
 
@@ -80,7 +107,7 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 			return;
 		}
 
-		if (!this.isShulkerBox(itemStack)) {
+		if (!isShulkerBox(itemStack)) {
 			return;
 		}
 
@@ -96,11 +123,10 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 		}
 
 		Inventory inventory = ((InventoryHolder) blockState).getInventory();
-		String name = itemMeta.getDisplayName();
 
 		// To alleviate confusion when the box has not been placed since naming, use item name.
 		Inventory opened;
-		if (name != null && !name.isEmpty()) {
+		if (itemMeta.hasDisplayName()) {
 			opened = this.getServer().createInventory(player, InventoryType.SHULKER_BOX, itemMeta.getDisplayName());
 		} else {
 			opened = this.getServer().createInventory(player, InventoryType.SHULKER_BOX);
@@ -110,7 +136,12 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 
 		InventoryView view = player.openInventory(opened);
 
-		this.playersOpeningBoxes.put(player.getUniqueId(), new ImmutablePair<>(view, event.getHand()));
+		if (view == null) {
+			player.closeInventory();
+			return;
+		}
+
+		this.playersOpeningBoxes.put(player.getUniqueId(), new Pair<>(view, event.getHand()));
 
 	}
 
@@ -160,8 +191,8 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 		}
 
 		// Disallow movement of shulker boxes in general, not just the open one.
-		if (this.isShulkerBox(event.getCurrentItem()) || event.getClick() == ClickType.NUMBER_KEY
-				&& this.isShulkerBox(event.getWhoClicked().getInventory().getItem(event.getHotbarButton()))) {
+		if (isShulkerBox(event.getCurrentItem()) || event.getClick() == ClickType.NUMBER_KEY
+				&& isShulkerBox(event.getWhoClicked().getInventory().getItem(event.getHotbarButton()))) {
 			event.setCancelled(true);
 			return;
 		}
@@ -169,42 +200,6 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 			if (this.playersOpeningBoxes.containsKey(event.getWhoClicked().getUniqueId())) {
 			// TODO: only save if top inventory is affected
 			this.saveShulkerLater(event.getWhoClicked());
-		}
-	}
-
-	@EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
-	public void preventServerCrash(final InventoryClickEvent event) {
-		/*
-		 * In 1.11, shift clicking caused a nasty NullPointerException or StackOverflowError.
-		 * In 1.12, shift clicking crashes the server.
-		 *
-		 * All of these things are Bad Things. We do not like Bad Things.
-		 *
-		 * To prevent this, we manually mimic vanilla behavior on priority MONITOR so other plugins do not interpret our
-		 * event cancellation as transfer prevention.
-		 */
-		if (!this.playersOpeningBoxes.containsKey(event.getWhoClicked().getUniqueId()) || !event.isShiftClick()
-				|| event.getCurrentItem() == null || event.getCurrentItem().getType() == Material.AIR) {
-			return;
-		}
-
-		Inventory clicked = event.getClickedInventory();
-		if (clicked == null) {
-			return;
-		}
-
-		Inventory clickedTo = event.getView().getTopInventory().equals(clicked)
-				? event.getView().getBottomInventory() : event.getView().getTopInventory();
-
-		event.setCancelled(true);
-		ItemStack moved = event.getCurrentItem().clone();
-		event.setCurrentItem(null);
-
-		// TODO: inventory#addItem starts on the wrong side of the hotbar when adding to player inventory
-		HashMap<Integer, ItemStack> failedAdditions = clickedTo.addItem(moved);
-
-		if (!failedAdditions.isEmpty()) {
-			event.setCurrentItem(failedAdditions.values().iterator().next());
 		}
 	}
 
@@ -225,21 +220,22 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 		} else if (pair.getRight() == EquipmentSlot.OFF_HAND) {
 			itemStack = player.getInventory().getItemInOffHand();
 		} else {
-			System.err.println(String.format("Found unexpected EquipmentSlot %s for %s! Possible dupe bug!",
-					pair.getRight().name(), player.getName()));
-			this.playersOpeningBoxes.remove(player.getUniqueId());
-			player.closeInventory();
+			noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(player,
+					() -> String.format("Found unexpected EquipmentSlot %s for %s! Possible dupe bug!",
+							pair.getRight().name(), player.getName()));
 			return;
 		}
 
 		if (!isShulkerBox(itemStack)) {
-			noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(player);
+			noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(player,
+					() -> String.format("Can't find shulker box for %s! Possible dupe bug!", player.getName()));
 			return;
 		}
 
 		ItemMeta itemMeta = itemStack.getItemMeta();
 		if (!(itemMeta instanceof BlockStateMeta)) {
-			noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(player);
+			noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(player,
+					() -> String.format("Can't find shulker box for %s! Possible dupe bug!", player.getName()));
 			return;
 		}
 
@@ -247,7 +243,8 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 		BlockState blockState = blockStateMeta.getBlockState();
 
 		if (!(blockState instanceof InventoryHolder)) {
-			noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(player);
+			noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(player,
+					() -> String.format("Can't find shulker box for %s! Possible dupe bug!", player.getName()));
 			return;
 		}
 
@@ -267,38 +264,15 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 
 	}
 
-	private void noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(HumanEntity player) {
-		System.err.println(String.format("Can't find shulker box for %s! Possible dupe bug!", player.getName()));
-		this.playersOpeningBoxes.remove(player.getUniqueId());
-		player.closeInventory();
+	private void noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(HumanEntity nastyPerson,
+			Supplier<String> redAlertEvilActivityOhNo) {
+		System.err.println(redAlertEvilActivityOhNo.get());
+		this.playersOpeningBoxes.remove(nastyPerson.getUniqueId());
+		nastyPerson.closeInventory();
 	}
 
-	private boolean isShulkerBox(ItemStack itemStack) {
-		if (itemStack == null) {
-			return false;
-		}
-		switch (itemStack.getType()) {
-			case SHULKER_BOX:
-			case BLACK_SHULKER_BOX:
-			case BLUE_SHULKER_BOX:
-			case BROWN_SHULKER_BOX:
-			case CYAN_SHULKER_BOX:
-			case GRAY_SHULKER_BOX:
-			case GREEN_SHULKER_BOX:
-			case LIGHT_BLUE_SHULKER_BOX:
-			case LIME_SHULKER_BOX:
-			case MAGENTA_SHULKER_BOX:
-			case ORANGE_SHULKER_BOX:
-			case PINK_SHULKER_BOX:
-			case PURPLE_SHULKER_BOX:
-			case RED_SHULKER_BOX:
-			case LIGHT_GRAY_SHULKER_BOX:
-			case WHITE_SHULKER_BOX:
-			case YELLOW_SHULKER_BOX:
-				return true;
-			default:
-				return false;
-		}
+	private static boolean isShulkerBox(@Nullable ItemStack itemStack) {
+		return itemStack != null && SHULKER_BOX_TYPES.contains(itemStack.getType());
 	}
 
 }
