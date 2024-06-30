@@ -1,6 +1,5 @@
 package com.github.jikoo.portableshulkerbox;
 
-import com.github.jikoo.portableshulkerbox.util.Pair;
 import org.bukkit.Bukkit;
 import org.bukkit.Tag;
 import org.bukkit.block.BlockState;
@@ -13,26 +12,24 @@ import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
-import org.bukkit.event.inventory.InventoryType;
+import org.bukkit.event.inventory.InventoryInteractEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerItemHeldEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
-import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.BlockStateMeta;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.function.Supplier;
 
 /**
  * A simple plugin allowing players to open shulker boxes by right-clicking air.
@@ -41,7 +38,7 @@ import java.util.function.Supplier;
  */
 public class PortableShulkerBox extends JavaPlugin implements Listener {
 
-	private final Map<UUID, Pair<InventoryView, EquipmentSlot>> playersOpeningBoxes = new HashMap<>();
+	private final Map<UUID, ActiveShulker> playersOpeningBoxes = new HashMap<>();
 
 	@Override
 	public void onEnable() {
@@ -76,16 +73,14 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 			return;
 		}
 
-		ItemStack itemStack;
-		PlayerInventory playerInventory = player.getInventory();
-		if (event.getHand() == EquipmentSlot.HAND) {
-			itemStack = playerInventory.getItemInMainHand();
-		} else if (event.getHand() == EquipmentSlot.OFF_HAND) {
-			itemStack = playerInventory.getItemInOffHand();
-		} else {
+		Hand hand = Hand.of(event.getHand());
+
+		if (hand == null) {
 			// Just in case another plugin does something weird.
 			return;
 		}
+
+		ItemStack itemStack = hand.get(player);
 
 		if (!isShulkerBox(itemStack)) {
 			return;
@@ -103,25 +98,19 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 		}
 
 		Inventory inventory = ((InventoryHolder) blockState).getInventory();
-
-		// To alleviate confusion when the box has not been placed since naming, use item name.
-		Inventory opened;
-		if (itemMeta.hasDisplayName()) {
-			opened = this.getServer().createInventory(player, InventoryType.SHULKER_BOX, itemMeta.getDisplayName());
-		} else {
-			opened = this.getServer().createInventory(player, InventoryType.SHULKER_BOX);
-		}
-
-		opened.setContents(inventory.getContents());
-
-		InventoryView view = player.openInventory(opened);
+		InventoryView view = player.openInventory(inventory);
 
 		if (view == null) {
 			player.closeInventory();
 			return;
 		}
 
-		this.playersOpeningBoxes.put(player.getUniqueId(), new Pair<>(view, event.getHand()));
+		// To alleviate confusion when the box has not been placed since naming, use item name.
+		if (itemMeta.hasDisplayName()) {
+			view.setTitle(itemMeta.getDisplayName());
+		}
+
+		this.playersOpeningBoxes.put(player.getUniqueId(), new ActiveShulker(inventory, hand));
 
 	}
 
@@ -157,20 +146,26 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 	}
 
 	@EventHandler(ignoreCancelled = true)
-	public void onInventoryDrag(final InventoryDragEvent event) {
-		if (this.playersOpeningBoxes.containsKey(event.getWhoClicked().getUniqueId())) {
-			for (int slot : event.getRawSlots()) {
-				if (slot < event.getView().getTopInventory().getSize()) {
-					this.saveShulkerLater(event.getWhoClicked());
-					break;
-				}
+	public void onInventoryDrag(@NotNull InventoryDragEvent event) {
+		ActiveShulker activeShulker = this.playersOpeningBoxes.get(event.getWhoClicked().getUniqueId());
+		if (activeShulker == null) {
+			return;
+		}
+		for (int slot : event.getRawSlots()) {
+			if (slot < event.getView().getTopInventory().getSize()) {
+				// If the drag affects the shulker, update its content.
+				this.saveShulkerLater(event, activeShulker);
+				return;
 			}
 		}
+		// If the content has not changed, just check that the shulker is still available.
+		checkShulker(event, activeShulker);
 	}
 
 	@EventHandler(ignoreCancelled = true)
-	public void onInventoryClick(final InventoryClickEvent event) {
-		if (!this.playersOpeningBoxes.containsKey(event.getWhoClicked().getUniqueId())) {
+	public void onInventoryClick(@NotNull InventoryClickEvent event) {
+		ActiveShulker activeShulker = this.playersOpeningBoxes.get(event.getWhoClicked().getUniqueId());
+		if (activeShulker == null) {
 			return;
 		}
 
@@ -182,11 +177,11 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 			return;
 		}
 
-    switch (event.getClick()) {
+		boolean updateContent = switch (event.getClick()) {
 			case WINDOW_BORDER_LEFT:
 			case WINDOW_BORDER_RIGHT:
 				// When clicking outside of inventory, shulker unaffected.
-				return;
+				yield false;
 			case LEFT:
 			case RIGHT:
 			case MIDDLE:
@@ -194,82 +189,74 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 			case DROP:
 			case CONTROL_DROP:
 			case CREATIVE:
-	    case SWAP_OFFHAND:
+			case SWAP_OFFHAND:
 				// If bottom inventory, shulker unaffected.
-				if (event.getSlot() != event.getRawSlot()) {
-					return;
-				}
-				break;
+				yield event.getSlot() == event.getRawSlot();
 			default:
 				// For shift clicks, guaranteed at least attempting a change.
 				// Double click gathering to cursor may or may not affect ths shulker, but we can't check with the API.
 				// For anything else, just update to be safe.
-				break;
-		}
+				yield true;
+		};
 
-		this.saveShulkerLater(event.getWhoClicked());
+		if (updateContent) {
+			// If the content has changed, update the shulker.
+			this.saveShulkerLater(event, activeShulker);
+		} else {
+			// If the content has not changed, just check that the shulker is still available.
+			checkShulker(event, activeShulker);
+		}
 	}
 
-	private void saveShulkerLater(final HumanEntity player) {
-		this.getServer().getScheduler().runTask(this, () -> this.saveShulker(player));
+	private void checkShulker(@NotNull InventoryInteractEvent event, @NotNull ActiveShulker activeShulker) {
+		ItemStack itemStack = activeShulker.hand().get(event.getWhoClicked());
+		if (!isShulkerBox(itemStack)) {
+			event.setCancelled(true);
+			noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(event.getWhoClicked());
+		}
+	}
+
+	private void saveShulkerLater(@NotNull InventoryInteractEvent event, @NotNull ActiveShulker activeShulker) {
+		checkShulker(event, activeShulker);
+		this.getServer().getScheduler().runTask(this, () -> this.saveShulker(event.getWhoClicked()));
 	}
 
 	private void saveShulker(HumanEntity player) {
-		if (!this.playersOpeningBoxes.containsKey(player.getUniqueId())) {
+		// Re-obtain active shulker to prevent duplicate saves.
+		ActiveShulker activeShulker = this.playersOpeningBoxes.get(player.getUniqueId());
+		if (activeShulker == null) {
 			return;
 		}
 
-		Pair<InventoryView, EquipmentSlot> pair = this.playersOpeningBoxes.get(player.getUniqueId());
-
-		ItemStack itemStack;
-		if (pair.getRight() == EquipmentSlot.HAND) {
-			itemStack = player.getInventory().getItemInMainHand();
-		} else if (pair.getRight() == EquipmentSlot.OFF_HAND) {
-			itemStack = player.getInventory().getItemInOffHand();
-		} else {
-			noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(player,
-					() -> String.format("Found unexpected EquipmentSlot %s for %s! Possible dupe bug!",
-							pair.getRight().name(), player.getName()));
-			return;
-		}
+		ItemStack itemStack = activeShulker.hand().get(player);
 
 		if (!isShulkerBox(itemStack)) {
-			noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(player,
-					() -> String.format("Can't find shulker box for %s! Possible dupe bug!", player.getName()));
+			noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(player);
 			return;
 		}
 
 		ItemMeta itemMeta = itemStack.getItemMeta();
-		if (!(itemMeta instanceof BlockStateMeta)) {
-			noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(player,
-					() -> String.format("Can't find shulker box for %s! Possible dupe bug!", player.getName()));
+		if (!(itemMeta instanceof BlockStateMeta blockStateMeta)) {
+			noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(player);
 			return;
 		}
 
-		BlockStateMeta blockStateMeta = (BlockStateMeta) itemMeta;
 		BlockState blockState = blockStateMeta.getBlockState();
 
-		if (!(blockState instanceof InventoryHolder)) {
-			noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(player,
-					() -> String.format("Can't find shulker box for %s! Possible dupe bug!", player.getName()));
+		if (!(blockState instanceof InventoryHolder holder)) {
+			noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(player);
 			return;
 		}
 
-		((InventoryHolder) blockState).getInventory().setContents(pair.getLeft().getTopInventory().getContents());
+		holder.getInventory().setContents(activeShulker.inventory().getContents());
 		blockStateMeta.setBlockState(blockState);
 		itemStack.setItemMeta(blockStateMeta);
 
-		if (pair.getRight() == EquipmentSlot.HAND) {
-			player.getInventory().setItemInMainHand(itemStack);
-		} else if (pair.getRight() == EquipmentSlot.OFF_HAND) {
-			player.getInventory().setItemInOffHand(itemStack);
-		}
-
+		activeShulker.hand().set(player, itemStack);
 	}
 
-	private void noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(HumanEntity nastyPerson,
-			Supplier<String> redAlertEvilActivityOhNo) {
-		getLogger().severe(redAlertEvilActivityOhNo);
+	private void noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(HumanEntity nastyPerson) {
+		getLogger().severe(() -> String.format("Can't find shulker box for %s! Possible dupe bug!", nastyPerson.getName()));
 		this.playersOpeningBoxes.remove(nastyPerson.getUniqueId());
 		nastyPerson.closeInventory();
 	}

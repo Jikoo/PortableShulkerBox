@@ -3,7 +3,7 @@ name: PortableShulkerBox
 main: com.github.jikoo.portableshulkerbox.PortableShulkerBox
 version: ${project.version}
 author: Jikoo
-api-version: "1.16"
+api-version: "1.20"
 
 permissions:
  portableshulkerbox.open:
