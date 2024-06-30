@@ -1,13 +1,8 @@
 package com.github.jikoo.portableshulkerbox;
 
 import com.github.jikoo.portableshulkerbox.util.Pair;
-import java.util.EnumSet;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
-import java.util.function.Supplier;
 import org.bukkit.Bukkit;
-import org.bukkit.Material;
+import org.bukkit.Tag;
 import org.bukkit.block.BlockState;
 import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
@@ -34,31 +29,17 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Supplier;
+
 /**
- * A simple plugin allowing players to open shulker boxes by right clicking air.
+ * A simple plugin allowing players to open shulker boxes by right-clicking air.
  *
  * @author Jikoo
  */
 public class PortableShulkerBox extends JavaPlugin implements Listener {
-
-	private static final EnumSet<Material> SHULKER_BOX_TYPES = EnumSet.of(
-			Material.SHULKER_BOX,
-			Material.BLACK_SHULKER_BOX,
-			Material.BLUE_SHULKER_BOX,
-			Material.BROWN_SHULKER_BOX,
-			Material.CYAN_SHULKER_BOX,
-			Material.GRAY_SHULKER_BOX,
-			Material.GREEN_SHULKER_BOX,
-			Material.LIGHT_BLUE_SHULKER_BOX,
-			Material.LIME_SHULKER_BOX,
-			Material.MAGENTA_SHULKER_BOX,
-			Material.ORANGE_SHULKER_BOX,
-			Material.PINK_SHULKER_BOX,
-			Material.PURPLE_SHULKER_BOX,
-			Material.RED_SHULKER_BOX,
-			Material.LIGHT_GRAY_SHULKER_BOX,
-			Material.WHITE_SHULKER_BOX,
-			Material.YELLOW_SHULKER_BOX);
 
 	private final Map<UUID, Pair<InventoryView, EquipmentSlot>> playersOpeningBoxes = new HashMap<>();
 
@@ -74,8 +55,7 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 			if (player != null) {
 				player.closeInventory();
 			} else {
-				System.err.println(String.format("Inventory not properly closed for player with UUID %s! Possible dupe bug!",
-						mapping));
+				getLogger().warning(() -> String.format("Inventory not properly closed for player with UUID %s! Possible dupe bug!", mapping));
 			}
 		});
 		this.playersOpeningBoxes.clear();
@@ -258,10 +238,6 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 			player.getInventory().setItemInOffHand(itemStack);
 		}
 
-		if (player instanceof Player) {
-			((Player) player).updateInventory();
-		}
-
 	}
 
 	private void noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(HumanEntity nastyPerson,
@@ -272,7 +248,7 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 	}
 
 	private static boolean isShulkerBox(@Nullable ItemStack itemStack) {
-		return itemStack != null && SHULKER_BOX_TYPES.contains(itemStack.getType());
+		return itemStack != null && Tag.SHULKER_BOXES.isTagged(itemStack.getType());
 	}
 
 }
