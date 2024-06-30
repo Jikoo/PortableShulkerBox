@@ -159,8 +159,12 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 	@EventHandler(ignoreCancelled = true)
 	public void onInventoryDrag(final InventoryDragEvent event) {
 		if (this.playersOpeningBoxes.containsKey(event.getWhoClicked().getUniqueId())) {
-			// TODO: only save if top inventory is affected
-			this.saveShulkerLater(event.getWhoClicked());
+			for (int slot : event.getRawSlots()) {
+				if (slot < event.getView().getTopInventory().getSize()) {
+					this.saveShulkerLater(event.getWhoClicked());
+					break;
+				}
+			}
 		}
 	}
 
@@ -171,13 +175,38 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 		}
 
 		// Disallow movement of shulker boxes in general, not just the open one.
-		if (isShulkerBox(event.getCurrentItem()) || event.getClick() == ClickType.NUMBER_KEY
-				&& isShulkerBox(event.getWhoClicked().getInventory().getItem(event.getHotbarButton()))) {
+		if (isShulkerBox(event.getCurrentItem())
+				|| event.getClick() == ClickType.NUMBER_KEY && isShulkerBox(event.getWhoClicked().getInventory().getItem(event.getHotbarButton()))
+				|| event.getClick() == ClickType.SWAP_OFFHAND && isShulkerBox(event.getWhoClicked().getInventory().getItemInOffHand())) {
 			event.setCancelled(true);
 			return;
 		}
 
-		// TODO: only save if top inventory is affected
+    switch (event.getClick()) {
+			case WINDOW_BORDER_LEFT:
+			case WINDOW_BORDER_RIGHT:
+				// When clicking outside of inventory, shulker unaffected.
+				return;
+			case LEFT:
+			case RIGHT:
+			case MIDDLE:
+			case NUMBER_KEY:
+			case DROP:
+			case CONTROL_DROP:
+			case CREATIVE:
+	    case SWAP_OFFHAND:
+				// If bottom inventory, shulker unaffected.
+				if (event.getSlot() != event.getRawSlot()) {
+					return;
+				}
+				break;
+			default:
+				// For shift clicks, guaranteed at least attempting a change.
+				// Double click gathering to cursor may or may not affect ths shulker, but we can't check with the API.
+				// For anything else, just update to be safe.
+				break;
+		}
+
 		this.saveShulkerLater(event.getWhoClicked());
 	}
 
