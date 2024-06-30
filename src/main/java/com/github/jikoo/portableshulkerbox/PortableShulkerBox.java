@@ -55,7 +55,7 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 			if (player != null) {
 				player.closeInventory();
 			} else {
-				getLogger().warning(() -> String.format("Inventory not properly closed for player with UUID %s! Possible dupe bug!", mapping));
+				getLogger().severe(() -> String.format("Inventory not properly closed for player with UUID %s! Possible dupe bug!", mapping));
 			}
 		});
 		this.playersOpeningBoxes.clear();
@@ -177,10 +177,8 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 			return;
 		}
 
-			if (this.playersOpeningBoxes.containsKey(event.getWhoClicked().getUniqueId())) {
-			// TODO: only save if top inventory is affected
-			this.saveShulkerLater(event.getWhoClicked());
-		}
+		// TODO: only save if top inventory is affected
+		this.saveShulkerLater(event.getWhoClicked());
 	}
 
 	private void saveShulkerLater(final HumanEntity player) {
@@ -242,7 +240,7 @@ public class PortableShulkerBox extends JavaPlugin implements Listener {
 
 	private void noThatIsItIAmStoppingTheServerShutItAllDownNoMoreFunForAnyoneYouAreAllBanned(HumanEntity nastyPerson,
 			Supplier<String> redAlertEvilActivityOhNo) {
-		System.err.println(redAlertEvilActivityOhNo.get());
+		getLogger().severe(redAlertEvilActivityOhNo);
 		this.playersOpeningBoxes.remove(nastyPerson.getUniqueId());
 		nastyPerson.closeInventory();
 	}
